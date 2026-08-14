@@ -1,0 +1,165 @@
+package main
+
+import (
+	"crypto/tls"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/miekg/dns"
+)
+
+const (
+	dnsListenAddr   = "127.0.0.1:15353"
+	httpListenAddr  = "127.0.0.1:15380"
+	httpsListenAddr = "127.0.0.1:15443"
+	upstream        = "1.1.1.1:53"
+)
+
+// Зоны, которые перехватываем и заворачиваем на себя.
+// Шаг 1: только тестовая .test (зарезервирована RFC 2606, в реальном
+// интернете никогда не резолвится). Позже сюда добавятся .eth/.hns.
+var interceptedZones = []string{"test.", "eth."}
+
+func isIntercepted(name string) bool {
+	name = strings.ToLower(name)
+	for _, zone := range interceptedZones {
+		if strings.HasSuffix(name, zone) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleRequest(w dns.ResponseWriter, r *dns.Msg) {
+	if len(r.Question) > 0 && isIntercepted(r.Question[0].Name) {
+		handleIntercepted(w, r)
+		return
+	}
+	handleForwarded(w, r)
+}
+
+func handleIntercepted(w dns.ResponseWriter, r *dns.Msg) {
+	q := r.Question[0]
+	msg := new(dns.Msg)
+	msg.SetReply(r)
+	msg.Authoritative = true
+
+	if q.Qtype == dns.TypeA {
+		rr, err := dns.NewRR(fmt.Sprintf("%s 60 IN A 127.0.0.1", q.Name))
+		if err == nil {
+			msg.Answer = append(msg.Answer, rr)
+		}
+	}
+
+	if err := w.WriteMsg(msg); err != nil {
+		log.Printf("write error for %s: %v", q.Name, err)
+	}
+}
+
+func handleForwarded(w dns.ResponseWriter, r *dns.Msg) {
+	client := &dns.Client{Timeout: 5 * time.Second}
+
+	resp, _, err := client.Exchange(r, upstream)
+	if err != nil {
+		log.Printf("upstream error for %s: %v", questionName(r), err)
+		dns.HandleFailed(w, r)
+		return
+	}
+
+	if err := w.WriteMsg(resp); err != nil {
+		log.Printf("write error for %s: %v", questionName(r), err)
+	}
+}
+
+func questionName(r *dns.Msg) string {
+	if len(r.Question) == 0 {
+		return "?"
+	}
+	return r.Question[0].Name
+}
+
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		host, _, err := net.SplitHostPort(req.Host)
+		if err != nil {
+			host = req.Host
+		}
+
+		// Абсолютные пути вида /ipfs/<cid>/... — это подресурсы (JS/CSS/картинки),
+		// которые сама страница запросила у "своего" origin; проксируем как есть.
+		if strings.HasPrefix(req.URL.Path, "/ipfs/") || strings.HasPrefix(req.URL.Path, "/ipns/") {
+			proxyIPFS(w, req.URL.Path)
+			return
+		}
+
+		if strings.HasSuffix(host, ".eth") {
+			contenthash, err := resolveENS(host)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("ENS-резолвинг %s не удался: %v", host, err), http.StatusBadGateway)
+				return
+			}
+			proxyIPFS(w, contenthash+req.URL.Path)
+			return
+		}
+
+		fmt.Fprintf(w, "freeweb-resolver: привет с локального шлюза! (схема: %s)\nЗапрошенный домен (Host-заголовок): %s\n", req.URL.Scheme, host)
+	})
+	return mux
+}
+
+func startHTTPServer(mux *http.ServeMux) {
+	log.Printf("HTTP listening on %s", httpListenAddr)
+	if err := http.ListenAndServe(httpListenAddr, mux); err != nil {
+		log.Fatalf("http server failed: %v", err)
+	}
+}
+
+func startHTTPSServer(mux *http.ServeMux, cm *certManager) {
+	server := &http.Server{
+		Addr:    httpsListenAddr,
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			GetCertificate: cm.GetCertificate,
+		},
+	}
+
+	log.Printf("HTTPS listening on %s (local CA: %s/ca.crt)", httpsListenAddr, caDir)
+	if err := server.ListenAndServeTLS("", ""); err != nil {
+		log.Fatalf("https server failed: %v", err)
+	}
+}
+
+func main() {
+	cm, err := newCertManager()
+	if err != nil {
+		log.Fatalf("cert manager init failed: %v", err)
+	}
+
+	dns.HandleFunc(".", handleRequest)
+
+	udpServer := &dns.Server{Addr: dnsListenAddr, Net: "udp"}
+	tcpServer := &dns.Server{Addr: dnsListenAddr, Net: "tcp"}
+
+	go func() {
+		log.Printf("UDP listening on %s (intercepting: %v, forwarding rest to %s)", dnsListenAddr, interceptedZones, upstream)
+		if err := udpServer.ListenAndServe(); err != nil {
+			log.Fatalf("udp server failed: %v", err)
+		}
+	}()
+
+	go func() {
+		log.Printf("TCP listening on %s", dnsListenAddr)
+		if err := tcpServer.ListenAndServe(); err != nil {
+			log.Fatalf("tcp server failed: %v", err)
+		}
+	}()
+
+	mux := newMux()
+	go startHTTPServer(mux)
+	startHTTPSServer(mux, cm)
+}
