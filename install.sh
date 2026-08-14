@@ -32,7 +32,10 @@ echo
 echo "  3) Проверь без изменения системного DNS:"
 echo "       curl --resolve vitalik.eth:15443:127.0.0.1 https://vitalik.eth:15443/"
 echo
-echo "  4) (опционально) Переключи системный DNS на 127.0.0.1:15353, чтобы"
-echo "     .eth-имена открывались прямо в Safari без --resolve."
+echo "  4) (опционально) Чтобы .eth резолвился сам, без --resolve, и это НЕ"
+echo "     конфликтовало с VPN — используй split-DNS, а не общий DNS системы:"
+echo "       sudo mkdir -p /etc/resolver"
+echo "       sudo sh -c 'printf \"nameserver 127.0.0.1\\nport 15353\\n\" > /etc/resolver/eth'"
+echo "       sudo sh -c 'printf \"nameserver 127.0.0.1\\nport 15353\\n\" > /etc/resolver/test'"
 echo
 echo "Подробности и как всё это откатить — в README.md."
