@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -15,6 +16,7 @@ type Config struct {
 	IPFSGateway string
 	CADir       string
 	DropToUser  string
+	EnsCacheTTL time.Duration
 }
 
 var cfg Config
@@ -29,6 +31,7 @@ func parseFlags() {
 	ipfsGateway := flag.String("ipfs-gateway", "http://127.0.0.1:8080", "адрес локального IPFS-шлюза (kubo)")
 	caDir := flag.String("ca-dir", "ca", "директория для хранения локального CA (сертификат + приватный ключ)")
 	dropToUser := flag.String("drop-to-user", "", "если запущено от root (нужно для портов <1024) — после бинда портов сбросить привилегии до этого пользователя")
+	ensCacheTTL := flag.Duration("ens-cache-ttl", 5*time.Minute, "на сколько кешировать contenthash от ENS перед повторным походом в Ethereum")
 
 	flag.Parse()
 
@@ -42,6 +45,7 @@ func parseFlags() {
 		IPFSGateway: *ipfsGateway,
 		CADir:       *caDir,
 		DropToUser:  *dropToUser,
+		EnsCacheTTL: *ensCacheTTL,
 	}
 }
 
