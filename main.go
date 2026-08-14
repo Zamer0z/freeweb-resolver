@@ -12,21 +12,9 @@ import (
 	"github.com/miekg/dns"
 )
 
-const (
-	dnsListenAddr   = "127.0.0.1:15353"
-	httpListenAddr  = "127.0.0.1:15380"
-	httpsListenAddr = "127.0.0.1:15443"
-	upstream        = "1.1.1.1:53"
-)
-
-// Зоны, которые перехватываем и заворачиваем на себя.
-// Шаг 1: только тестовая .test (зарезервирована RFC 2606, в реальном
-// интернете никогда не резолвится). Позже сюда добавятся .eth/.hns.
-var interceptedZones = []string{"test.", "eth."}
-
 func isIntercepted(name string) bool {
 	name = strings.ToLower(name)
-	for _, zone := range interceptedZones {
+	for _, zone := range cfg.Zones {
 		if strings.HasSuffix(name, zone) {
 			return true
 		}
@@ -63,7 +51,7 @@ func handleIntercepted(w dns.ResponseWriter, r *dns.Msg) {
 func handleForwarded(w dns.ResponseWriter, r *dns.Msg) {
 	client := &dns.Client{Timeout: 5 * time.Second}
 
-	resp, _, err := client.Exchange(r, upstream)
+	resp, _, err := client.Exchange(r, cfg.Upstream)
 	if err != nil {
 		log.Printf("upstream error for %s: %v", questionName(r), err)
 		dns.HandleFailed(w, r)
@@ -113,28 +101,30 @@ func newMux() *http.ServeMux {
 }
 
 func startHTTPServer(mux *http.ServeMux) {
-	log.Printf("HTTP listening on %s", httpListenAddr)
-	if err := http.ListenAndServe(httpListenAddr, mux); err != nil {
+	log.Printf("HTTP listening on %s", cfg.HTTPListen)
+	if err := http.ListenAndServe(cfg.HTTPListen, mux); err != nil {
 		log.Fatalf("http server failed: %v", err)
 	}
 }
 
 func startHTTPSServer(mux *http.ServeMux, cm *certManager) {
 	server := &http.Server{
-		Addr:    httpsListenAddr,
+		Addr:    cfg.HTTPSListen,
 		Handler: mux,
 		TLSConfig: &tls.Config{
 			GetCertificate: cm.GetCertificate,
 		},
 	}
 
-	log.Printf("HTTPS listening on %s (local CA: %s/ca.crt)", httpsListenAddr, caDir)
+	log.Printf("HTTPS listening on %s (local CA: %s/ca.crt)", cfg.HTTPSListen, cfg.CADir)
 	if err := server.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("https server failed: %v", err)
 	}
 }
 
 func main() {
+	parseFlags()
+
 	cm, err := newCertManager()
 	if err != nil {
 		log.Fatalf("cert manager init failed: %v", err)
@@ -142,18 +132,18 @@ func main() {
 
 	dns.HandleFunc(".", handleRequest)
 
-	udpServer := &dns.Server{Addr: dnsListenAddr, Net: "udp"}
-	tcpServer := &dns.Server{Addr: dnsListenAddr, Net: "tcp"}
+	udpServer := &dns.Server{Addr: cfg.DNSListen, Net: "udp"}
+	tcpServer := &dns.Server{Addr: cfg.DNSListen, Net: "tcp"}
 
 	go func() {
-		log.Printf("UDP listening on %s (intercepting: %v, forwarding rest to %s)", dnsListenAddr, interceptedZones, upstream)
+		log.Printf("UDP listening on %s (intercepting: %v, forwarding rest to %s)", cfg.DNSListen, cfg.Zones, cfg.Upstream)
 		if err := udpServer.ListenAndServe(); err != nil {
 			log.Fatalf("udp server failed: %v", err)
 		}
 	}()
 
 	go func() {
-		log.Printf("TCP listening on %s", dnsListenAddr)
+		log.Printf("TCP listening on %s", cfg.DNSListen)
 		if err := tcpServer.ListenAndServe(); err != nil {
 			log.Fatalf("tcp server failed: %v", err)
 		}

@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const caDir = "ca"
-
 type certManager struct {
 	caCert *x509.Certificate
 	caKey  *rsa.PrivateKey
@@ -35,11 +33,11 @@ func newCertManager() (*certManager, error) {
 }
 
 func (cm *certManager) caPaths() (certPath, keyPath string) {
-	return filepath.Join(caDir, "ca.crt"), filepath.Join(caDir, "ca.key")
+	return filepath.Join(cfg.CADir, "ca.crt"), filepath.Join(cfg.CADir, "ca.key")
 }
 
 func (cm *certManager) ensureCA() error {
-	if err := os.MkdirAll(caDir, 0700); err != nil {
+	if err := os.MkdirAll(cfg.CADir, 0700); err != nil {
 		return err
 	}
 	certPath, keyPath := cm.caPaths()
@@ -154,7 +152,7 @@ func (cm *certManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certific
 	}
 
 	if name != "localhost" && !isIntercepted(name+".") {
-		return nil, fmt.Errorf("отказ выдать сертификат: %q вне зон, обслуживаемых этим CA (%v)", name, interceptedZones)
+		return nil, fmt.Errorf("отказ выдать сертификат: %q вне зон, обслуживаемых этим CA (%v)", name, cfg.Zones)
 	}
 
 	cm.mu.Lock()

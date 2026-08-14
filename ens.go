@@ -7,13 +7,8 @@ import (
 	ens "github.com/wealdtech/go-ens/v3"
 )
 
-// Публичный бесплатный RPC-шлюз в сеть Ethereum, ключ не нужен.
-// Это единственная оставшаяся точка доверия третьей стороне в MVP —
-// на будущих этапах заменяется на свою лёгкую ноду.
-const ethRPC = "https://ethereum-rpc.publicnode.com"
-
 func resolveENS(name string) (contenthash string, err error) {
-	client, err := ethclient.Dial(ethRPC)
+	client, err := ethclient.Dial(cfg.EthRPC)
 	if err != nil {
 		return "", fmt.Errorf("подключение к RPC: %w", err)
 	}

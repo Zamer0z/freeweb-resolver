@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// Локальный шлюз kubo (ipfs daemon), поднятый отдельно.
-const ipfsGateway = "http://127.0.0.1:8080"
-
 var ipfsHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // proxyIPFS забирает контент по contenthash (вида "/ipfs/<cid>" или
@@ -22,7 +19,7 @@ func proxyIPFS(w http.ResponseWriter, contenthash string) {
 		return
 	}
 
-	targetURL := ipfsGateway + contenthash
+	targetURL := cfg.IPFSGateway + contenthash
 	resp, err := ipfsHTTPClient.Get(targetURL)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("не удалось получить контент с локальной IPFS-ноды: %v", err), http.StatusBadGateway)
