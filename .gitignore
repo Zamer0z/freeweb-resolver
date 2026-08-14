@@ -1,3 +1,4 @@
 /ca/
 /resolver
 *.log
+nohup.out

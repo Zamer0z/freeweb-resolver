@@ -14,6 +14,7 @@ type Config struct {
 	EthRPC      string
 	IPFSGateway string
 	CADir       string
+	DropToUser  string
 }
 
 var cfg Config
@@ -27,6 +28,7 @@ func parseFlags() {
 	ethRPC := flag.String("eth-rpc", "https://ethereum-rpc.publicnode.com", "JSON-RPC эндпоинт Ethereum для резолвинга ENS")
 	ipfsGateway := flag.String("ipfs-gateway", "http://127.0.0.1:8080", "адрес локального IPFS-шлюза (kubo)")
 	caDir := flag.String("ca-dir", "ca", "директория для хранения локального CA (сертификат + приватный ключ)")
+	dropToUser := flag.String("drop-to-user", "", "если запущено от root (нужно для портов <1024) — после бинда портов сбросить привилегии до этого пользователя")
 
 	flag.Parse()
 
@@ -39,6 +41,7 @@ func parseFlags() {
 		EthRPC:      *ethRPC,
 		IPFSGateway: *ipfsGateway,
 		CADir:       *caDir,
+		DropToUser:  *dropToUser,
 	}
 }
 

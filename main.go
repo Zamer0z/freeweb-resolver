@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
@@ -100,31 +101,51 @@ func newMux() *http.ServeMux {
 	return mux
 }
 
-func startHTTPServer(mux *http.ServeMux) {
-	log.Printf("HTTP listening on %s", cfg.HTTPListen)
-	if err := http.ListenAndServe(cfg.HTTPListen, mux); err != nil {
-		log.Fatalf("http server failed: %v", err)
-	}
-}
+// bindListeners открывает все сокеты, включая, возможно, привилегированные
+// порты <1024 — это единственная операция во всей программе, ради которой
+// вообще может понадобиться root. Выполняется ДО dropPrivileges.
+func bindListeners() (udpConn net.PacketConn, tcpListener, httpListener, httpsListener net.Listener) {
+	var err error
 
-func startHTTPSServer(mux *http.ServeMux, cm *certManager) {
-	server := &http.Server{
-		Addr:    cfg.HTTPSListen,
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			GetCertificate: cm.GetCertificate,
-		},
+	udpConn, err = net.ListenPacket("udp", cfg.DNSListen)
+	if err != nil {
+		log.Fatalf("bind DNS/udp %s: %v", cfg.DNSListen, err)
 	}
 
-	log.Printf("HTTPS listening on %s (local CA: %s/ca.crt)", cfg.HTTPSListen, cfg.CADir)
-	if err := server.ListenAndServeTLS("", ""); err != nil {
-		log.Fatalf("https server failed: %v", err)
+	tcpListener, err = net.Listen("tcp", cfg.DNSListen)
+	if err != nil {
+		log.Fatalf("bind DNS/tcp %s: %v", cfg.DNSListen, err)
 	}
+
+	httpListener, err = net.Listen("tcp", cfg.HTTPListen)
+	if err != nil {
+		log.Fatalf("bind HTTP %s: %v", cfg.HTTPListen, err)
+	}
+
+	httpsListener, err = net.Listen("tcp", cfg.HTTPSListen)
+	if err != nil {
+		log.Fatalf("bind HTTPS %s: %v", cfg.HTTPSListen, err)
+	}
+
+	return udpConn, tcpListener, httpListener, httpsListener
 }
 
 func main() {
 	parseFlags()
 
+	// 1. Биндим все порты первыми, пока ещё есть root (если он вообще есть).
+	udpConn, dnsTCPListener, httpListener, httpsListener := bindListeners()
+
+	// 2. Сразу после бинда — сбрасываем привилегии. Дальше по коду ничего
+	// не требует root, вся обработка чужих запросов идёт от обычного юзера.
+	if err := dropPrivileges(cfg.DropToUser); err != nil {
+		log.Fatalf("privilege drop failed: %v", err)
+	}
+	if syscall.Geteuid() == 0 {
+		log.Printf("WARNING: работаем от root (--drop-to-user не задан) — это небезопасно, задай флаг")
+	}
+
+	// 3. Обычная инициализация — уже без повышенных прав.
 	cm, err := newCertManager()
 	if err != nil {
 		log.Fatalf("cert manager init failed: %v", err)
@@ -132,24 +153,38 @@ func main() {
 
 	dns.HandleFunc(".", handleRequest)
 
-	udpServer := &dns.Server{Addr: cfg.DNSListen, Net: "udp"}
-	tcpServer := &dns.Server{Addr: cfg.DNSListen, Net: "tcp"}
+	udpServer := &dns.Server{PacketConn: udpConn, Net: "udp"}
+	tcpServer := &dns.Server{Listener: dnsTCPListener, Net: "tcp"}
 
 	go func() {
 		log.Printf("UDP listening on %s (intercepting: %v, forwarding rest to %s)", cfg.DNSListen, cfg.Zones, cfg.Upstream)
-		if err := udpServer.ListenAndServe(); err != nil {
+		if err := udpServer.ActivateAndServe(); err != nil {
 			log.Fatalf("udp server failed: %v", err)
 		}
 	}()
 
 	go func() {
 		log.Printf("TCP listening on %s", cfg.DNSListen)
-		if err := tcpServer.ListenAndServe(); err != nil {
+		if err := tcpServer.ActivateAndServe(); err != nil {
 			log.Fatalf("tcp server failed: %v", err)
 		}
 	}()
 
 	mux := newMux()
-	go startHTTPServer(mux)
-	startHTTPSServer(mux, cm)
+
+	go func() {
+		log.Printf("HTTP listening on %s", cfg.HTTPListen)
+		if err := http.Serve(httpListener, mux); err != nil {
+			log.Fatalf("http server failed: %v", err)
+		}
+	}()
+
+	tlsConfig := &tls.Config{GetCertificate: cm.GetCertificate}
+	tlsListener := tls.NewListener(httpsListener, tlsConfig)
+	httpsServer := &http.Server{Handler: mux, TLSConfig: tlsConfig}
+
+	log.Printf("HTTPS listening on %s (local CA: %s/ca.crt)", cfg.HTTPSListen, cfg.CADir)
+	if err := httpsServer.Serve(tlsListener); err != nil {
+		log.Fatalf("https server failed: %v", err)
+	}
 }
