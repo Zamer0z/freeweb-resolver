@@ -153,6 +153,10 @@ func (cm *certManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certific
 		name = "localhost"
 	}
 
+	if name != "localhost" && !isIntercepted(name+".") {
+		return nil, fmt.Errorf("отказ выдать сертификат: %q вне зон, обслуживаемых этим CA (%v)", name, interceptedZones)
+	}
+
 	cm.mu.Lock()
 	if c, ok := cm.cache[name]; ok {
 		cm.mu.Unlock()
