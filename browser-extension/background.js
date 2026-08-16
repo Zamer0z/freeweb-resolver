@@ -34,3 +34,47 @@ chrome.runtime.onStartup.addListener(checkStatus);
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) checkStatus();
 });
+
+// ---------------------------------------------------------------------------
+// Автоматический редирект: .eth-имена по умолчанию идут на порт 443, где
+// наш шлюз не слушает (он на 15443, чтобы не требовать root). Ловим именно
+// эту неудачную попытку и молча перенаправляем на рабочий адрес — так можно
+// печатать vitalik.eth (или https://vitalik.eth) как обычный сайт, без
+// ручного дописывания порта.
+// ---------------------------------------------------------------------------
+
+const GATEWAY_PORT = "15443";
+const RETRYABLE_ERRORS = new Set([
+  "net::ERR_NAME_NOT_RESOLVED",
+  "net::ERR_CONNECTION_REFUSED",
+  "net::ERR_SSL_PROTOCOL_ERROR",
+]);
+
+function isEthHost(urlString) {
+  try {
+    return new URL(urlString).hostname.endsWith(".eth");
+  } catch {
+    return false;
+  }
+}
+
+function toGatewayURL(urlString) {
+  const u = new URL(urlString);
+  // Редиректим только с "дефолтного" порта — иначе можно зациклиться,
+  // если и сам шлюз по какой-то причине недоступен.
+  if (u.port !== "" && u.port !== "443") return null;
+  u.protocol = "https:";
+  u.port = GATEWAY_PORT;
+  return u.toString();
+}
+
+chrome.webNavigation.onErrorOccurred.addListener((details) => {
+  if (details.frameId !== 0) return; // только основной фрейм страницы
+  if (!isEthHost(details.url)) return;
+  if (!RETRYABLE_ERRORS.has(details.error)) return;
+
+  const target = toGatewayURL(details.url);
+  if (!target || target === details.url) return;
+
+  chrome.tabs.update(details.tabId, { url: target });
+});

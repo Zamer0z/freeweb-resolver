@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "freeweb-resolver status",
-  "version": "1.0",
-  "description": "Показывает значком, работает ли локальный freeweb-resolver и IPFS-нода",
-  "permissions": ["alarms"],
-  "host_permissions": ["http://127.0.0.1/*"],
+  "version": "1.1",
+  "description": "Индикатор статуса + автоматически открывает .eth-имена без ручного порта",
+  "permissions": ["alarms", "webNavigation", "tabs"],
+  "host_permissions": ["http://127.0.0.1/*", "*://*.eth/*"],
   "background": {
     "service_worker": "background.js"
   },
