@@ -1,3 +1,5 @@
+//go:build darwin || linux
+
 package main
 
 import (
@@ -12,6 +14,11 @@ import (
 // причина иметь root вообще исчерпана. Если процесс не запущен от root,
 // это no-op: обычный (текущий) режим разработки на портах >1024 не требует
 // root и не затрагивается.
+// isElevated сообщает, работает ли процесс с правами root.
+func isElevated() bool {
+	return syscall.Geteuid() == 0
+}
+
 func dropPrivileges(username string) error {
 	if syscall.Geteuid() != 0 {
 		return nil

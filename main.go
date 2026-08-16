@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
@@ -142,7 +141,7 @@ func main() {
 	if err := dropPrivileges(cfg.DropToUser); err != nil {
 		log.Fatalf("privilege drop failed: %v", err)
 	}
-	if syscall.Geteuid() == 0 {
+	if isElevated() {
 		log.Printf("WARNING: работаем от root (--drop-to-user не задан) — это небезопасно, задай флаг")
 	}
 
