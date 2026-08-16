@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "freeweb-resolver status",
+  "version": "1.0",
+  "description": "Показывает значком, работает ли локальный freeweb-resolver и IPFS-нода",
+  "permissions": ["alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "freeweb-resolver"
+  }
+}

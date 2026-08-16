@@ -73,6 +73,7 @@ func questionName(r *dns.Msg) string {
 
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/_freeweb/status", handleStatus)
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		host, _, err := net.SplitHostPort(req.Host)
 		if err != nil {
