@@ -170,6 +170,10 @@ func main() {
 		}
 	}()
 
+	if len(cfg.Seed) > 0 {
+		go seedPin(cfg.Seed)
+	}
+
 	mux := newMux()
 
 	go func() {

@@ -14,9 +14,11 @@ type Config struct {
 	Zones       []string
 	EthRPC      string
 	IPFSGateway string
+	IPFSAPI     string
 	CADir       string
 	DropToUser  string
 	EnsCacheTTL time.Duration
+	Seed        []string
 }
 
 var cfg Config
@@ -29,9 +31,11 @@ func parseFlags() {
 	zones := flag.String("zones", "test.,eth.", "перехватываемые зоны через запятую, с точкой на конце (например test.,eth.)")
 	ethRPC := flag.String("eth-rpc", "https://ethereum-rpc.publicnode.com", "JSON-RPC эндпоинт Ethereum для резолвинга ENS")
 	ipfsGateway := flag.String("ipfs-gateway", "http://127.0.0.1:8080", "адрес локального IPFS-шлюза (kubo)")
+	ipfsAPI := flag.String("ipfs-api", "http://127.0.0.1:5001", "адрес RPC API локальной IPFS-ноды (нужен только для --seed)")
 	caDir := flag.String("ca-dir", "ca", "директория для хранения локального CA (сертификат + приватный ключ)")
 	dropToUser := flag.String("drop-to-user", "", "если запущено от root (нужно для портов <1024) — после бинда портов сбросить привилегии до этого пользователя")
 	ensCacheTTL := flag.Duration("ens-cache-ttl", 5*time.Minute, "на сколько кешировать contenthash от ENS перед повторным походом в Ethereum")
+	seed := flag.String("seed", "", "через запятую: .eth-имена чужих сайтов, которые эта нода добровольно и бесплатно тоже будет раздавать (пин на своей IPFS-ноде)")
 
 	flag.Parse()
 
@@ -40,16 +44,18 @@ func parseFlags() {
 		HTTPListen:  *httpListen,
 		HTTPSListen: *httpsListen,
 		Upstream:    *upstream,
-		Zones:       splitZones(*zones),
+		Zones:       splitList(*zones),
 		EthRPC:      *ethRPC,
 		IPFSGateway: *ipfsGateway,
+		IPFSAPI:     *ipfsAPI,
 		CADir:       *caDir,
 		DropToUser:  *dropToUser,
 		EnsCacheTTL: *ensCacheTTL,
+		Seed:        splitList(*seed),
 	}
 }
 
-func splitZones(raw string) []string {
+func splitList(raw string) []string {
 	parts := strings.Split(raw, ",")
 	zones := make([]string, 0, len(parts))
 	for _, p := range parts {
